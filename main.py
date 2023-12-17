@@ -181,21 +181,25 @@ def send_mining_group(client, sp, app_info, amount, total_txs, finish):
     composer.execute(client, 5)
     finish(amount)
 
+
 pending_txs = 0
 mutex = Lock()
+
 
 def finish_transactions(amount):
     global pending_txs
     with mutex:
         pending_txs -= amount
 
+
 def log_mining_stats(network, total_txs):
     global pending_txs
     click.echo(
-        f"[{datetime.now().strftime('%H:%M:%S')}] " +
-        f"{click.style(network.upper(), fg='red' if network == 'testnet' else 'yellow', bold=True)}: " +
-        f"Sent {total_txs} transactions, {pending_txs} currently pending."
+        f"[{datetime.now().strftime('%H:%M:%S')}] "
+        + f"{click.style(network.upper(), fg='red' if network == 'testnet' else 'yellow', bold=True)}: "
+        + f"Sent {total_txs} transactions, {pending_txs} currently pending."
     )
+
 
 def mine(network, tpm, fee):
     global pending_txs
@@ -210,6 +214,7 @@ def mine(network, tpm, fee):
     starttime = time.monotonic()
     total_txs = 0
     click.echo("Mining starts...")
+    # TODO: check for start timestamp
     while True:
         now = int(time.time())
         now = now - now % 60
@@ -226,7 +231,8 @@ def mine(network, tpm, fee):
         while total > 0:
             amount = min(16, total)
             task = Thread(
-                target=send_mining_group, args=(client, sp, app_info, amount, total_txs, finish_transactions)
+                target=send_mining_group,
+                args=(client, sp, app_info, amount, total_txs, finish_transactions),
             )
             task.start()
             total -= amount
@@ -255,10 +261,12 @@ def main(network, tpm, fee):
     mine(network, tpm, fee)
 
 
+# TODO
 def opt_in():
     pass
 
 
+# TODO
 def withdraw():
     pass
 
