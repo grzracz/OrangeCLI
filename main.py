@@ -107,7 +107,7 @@ def get_application_data(network):
         "last_miner_effort": get_state_number(state, "last_miner_effort"),
         "current_miner": get_state_address(state, "current_miner"),
         "current_miner_effort": get_state_number(state, "current_miner_effort"),
-        # "start_timestamp": get_state_number(state, "start_timestamp"),
+        "start_timestamp": get_state_number(state, "start_timestamp"),
     }
 
 
@@ -208,13 +208,19 @@ def mine(network, tpm, fee):
     started = started - started % 60
     transactions_to_send = tpm
     tps = math.ceil(tpm / 30)
-    app_info = None
+    app_info = get_application_data(network)
     sp = None
     loops = 0
     starttime = time.monotonic()
     total_txs = 0
+    now = int(time.time())
+    while now < (app_info["start_timestamp"]):
+        click.echo(
+            f"Waiting for mining to begin... {app_info['start_timestamp'] - now} seconds left"
+        )
+        time.sleep(5)
+        now = int(time.time())
     click.echo("Mining starts...")
-    # TODO: check for start timestamp
     while True:
         now = int(time.time())
         now = now - now % 60
