@@ -164,21 +164,24 @@ def check_deposit_opted_in(network):
 
 
 def send_mining_group(client, sp, app_info, amount, total_txs, finish):
-    composer = AtomicTransactionComposer()
-    for i in range(amount):
-        txid = total_txs + i
-        composer.add_method_call(
-            app_info["id"],
-            contract.get_method_by_name("mine"),
-            miner_address,
-            sp,
-            miner_signer,
-            [algosdk.encoding.decode_address(deposit_address)],
-            accounts=[app_info["last_miner"], deposit_address],
-            foreign_assets=[app_info["asset"]],
-            note=txid.to_bytes(math.ceil(txid / 255), "big"),
-        )
-    composer.execute(client, 5)
+    try:
+        composer = AtomicTransactionComposer()
+        for i in range(amount):
+            txid = total_txs + i
+            composer.add_method_call(
+                app_info["id"],
+                contract.get_method_by_name("mine"),
+                miner_address,
+                sp,
+                miner_signer,
+                [algosdk.encoding.decode_address(deposit_address)],
+                accounts=[app_info["last_miner"], deposit_address],
+                foreign_assets=[app_info["asset"]],
+                note=txid.to_bytes(math.ceil(txid / 255), "big"),
+            )
+        composer.execute(client, 5)
+    except Exception as e:
+        click.secho(f"Transactions failed: {e}", fg="red")
     finish(amount)
 
 
