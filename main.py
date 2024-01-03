@@ -203,6 +203,7 @@ def log_mining_stats(network, total_txs):
         + f"Sent {total_txs} transactions, {pending_txs} currently pending."
     )
 
+MINIMUM_BALANCE_THRESHOLD = int(os.getenv("MINIMUM_BALANCE_THRESHOLD", 1000000))
 
 def mine(network, tpm, fee):
     global pending_txs
@@ -234,6 +235,12 @@ def mine(network, tpm, fee):
             app_info = get_application_data(network)
             sp = client.suggested_params()
             log_mining_stats(network, total_txs)
+            # Balance check
+            miner_info = client.account_info(miner_address)
+            miner_balance = miner_info["amount"] - miner_info["min-balance"]
+            if miner_balance < MINIMUM_BALANCE_THRESHOLD:
+                click.secho("Miner has insufficient funds, stopping mining.", fg="red")
+                break
         sp.flat_fee = True
         sp.fee = fee
         total = min(tps, transactions_to_send)
@@ -251,6 +258,7 @@ def mine(network, tpm, fee):
         transactions_to_send -= total
         loops += 1
         time.sleep(2.0 - ((time.monotonic() - starttime) % 2.0))
+
 
 
 @click.command()
