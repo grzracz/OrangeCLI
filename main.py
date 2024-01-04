@@ -10,12 +10,22 @@ from algosdk.atomic_transaction_composer import (
     AtomicTransactionComposerStatus,
     AccountTransactionSigner,
 )
+from algosdk.transaction import ApplicationOptInTxn, AssetTransferTxn
 from threading import Thread, Lock
 from datetime import datetime
 
 load_dotenv()
 
-miner_mnemonic = os.getenv("MINER_MNEMONIC")
+def getenv(name):
+    value = os.getenv(name)
+    # Return None if the environment variable is not set or only contains whitespace.
+    # This simplifies handling empty values as dotenv returns an empty string ("")
+    # instead of None for variables that exist in the .env file but are left empty.
+    if value is None or value.strip() == "":
+        return None
+    return value
+
+miner_mnemonic = getenv("MINER_MNEMONIC")
 try:
     miner_sk = algosdk.mnemonic.to_private_key(miner_mnemonic)
     miner_signer = AccountTransactionSigner(miner_sk)
@@ -24,16 +34,25 @@ except Exception:
     click.secho(f"Miner mnemonic is malformed.", fg="red")
     exit(1)
 
-deposit_mnemonic = os.getenv("DEPOSIT_MNEMONIC")
-try:
-    deposit_pk = algosdk.mnemonic.to_private_key(deposit_mnemonic)
-    deposit_address = algosdk.account.address_from_private_key(deposit_pk)
-except Exception:
-    deposit_pk = None
-    deposit_address = os.getenv("DEPOSIT_ADDRESS")
-if not algosdk.encoding.is_valid_address(deposit_address):
-    click.secho(f"Deposit address not set or mnemonic is malformed.", fg="red")
+deposit_mnemonic = getenv("DEPOSIT_MNEMONIC")
+deposit_address = getenv("DEPOSIT_ADDRESS")
+
+if (deposit_address is not None and deposit_mnemonic is not None) or (deposit_address is None and deposit_mnemonic is None):
+    click.secho(f"Either DEPOSIT_MNEMONIC or DEPOSIT_ADDRESS must be set, but not both.", fg="red")
     exit(1)
+
+if deposit_mnemonic is not None:
+    try:
+        deposit_pk = algosdk.mnemonic.to_private_key(deposit_mnemonic)
+        deposit_address = algosdk.account.address_from_private_key(deposit_pk)
+    except Exception:
+        click.secho(f"Deposit mnemonic is malformed.", fg="red")
+        exit(1)
+
+if deposit_address is not None:
+    if not algosdk.encoding.is_valid_address(deposit_address):
+        click.secho(f"Deposit address is malformed.", fg="red")
+        exit(1)
 
 click.echo(f"Deposit address: {click.style(deposit_address, bold=True)}")
 click.echo(f"Miner address: {click.style(miner_address, bold=True)}")
@@ -139,28 +158,76 @@ def check_miner(network, tpm, fee):
         exit(1)
 
 
-def find(array, condition):
-    return next(iter([item for item in array if condition(item)]), None)
+def is_app_opted_in(app_info, account_info):
+    return app_info["id"] in [app["id"] for app in account_info["apps-local-state"]]
+
+
+def is_asset_opted_in(app_info, account_info):
+    return app_info["asset"] in [asset["asset-id"] for asset in account_info["assets"]]
 
 
 def check_deposit_opted_in(network):
     client = get_client(network)
-    deposit_info = client.account_info(deposit_address)
+    account_info = client.account_info(deposit_address)
     app_info = get_application_data(network)
-    app_opted_in = any(
-        [app["id"] == app_info["id"] for app in deposit_info["apps-local-state"]]
-    )
-    if not app_opted_in:
-        click.secho(f"Deposit address not opted in to app {app_info['id']}.", fg="red")
+    if not is_app_opted_in(app_info, account_info):
+        click.secho(f"Deposit address is not opted in to app {app_info['id']}.", fg="red")
         exit(1)
-    asset_data = find(
-        deposit_info["assets"], lambda asset: asset["asset-id"] == app_info["asset"]
-    )
-    if not asset_data:
+    if not is_asset_opted_in(app_info, account_info):
+        click.secho(f"Deposit address is not opted in to asset {app_info['asset']}.", fg="red")
+        exit(1)
+
+
+def check_deposit_balance(network):
+    client = get_client(network)
+    account_info = client.account_info(deposit_address)
+    balance = max(0, account_info["amount"] - account_info["min-balance"])
+    if balance < 1000000:
         click.secho(
-            f"Deposit address not opted in to asset {app_info['asset']}.", fg="red"
-        )
+            f"Insufficient balance in the deposit account for opt-in ({balance / pow(10, 6)} ALGO). "
+            f"Please fund the account with at least 1 ALGO to proceed.",
+            fg="red")
         exit(1)
+
+
+def opt_in_app(network):
+    private_key = algosdk.mnemonic.to_private_key(deposit_mnemonic)
+    address = algosdk.account.address_from_private_key(private_key)
+
+    client = get_client(network)
+    account_info = client.account_info(address)
+    app_info = get_application_data(network)
+
+    if not is_app_opted_in(app_info, account_info):
+        click.echo(f"Opting in to app {app_info['id']}...")
+        params = client.suggested_params()
+        txn = ApplicationOptInTxn(sender=address, sp=params, index=app_info['id'])
+        txn_signed = txn.sign(private_key)
+        txid = client.send_transaction(txn_signed)
+        click.secho(f"Opt-in to app succeeded (txid: {txid})", fg="green")
+
+
+def opt_in_asset(network):
+    private_key = algosdk.mnemonic.to_private_key(deposit_mnemonic)
+    address = algosdk.account.address_from_private_key(private_key)
+
+    client = get_client(network)
+    account_info = client.account_info(address)
+    app_info = get_application_data(network)
+
+    if not is_asset_opted_in(app_info, account_info):
+        click.echo(f"Opting in to asset {app_info['asset']}...")
+        params = client.suggested_params()
+        txn = AssetTransferTxn(sender=address, sp=params, receiver=address, amt=0, index=app_info['asset'])
+        txn_signed = txn.sign(private_key)
+        txid = client.send_transaction(txn_signed)
+        click.secho(f"Opt-in to asset succeeded (txid: {txid})", fg="green")
+
+
+def opt_in(network):
+    check_deposit_balance(network)
+    opt_in_app(network)
+    opt_in_asset(network)
 
 
 def send_mining_group(client, sp, app_info, amount, total_txs, finish):
@@ -272,15 +339,13 @@ def main(network, tpm, fee):
         f"Network: {click.style(network.upper(), fg='red' if network == 'testnet' else 'yellow', bold=True)}"
     )
     check_node_connection(network)
-    check_deposit_opted_in(network)
+    if deposit_mnemonic is not None:
+        opt_in(network)
+    else:
+        check_deposit_opted_in(network)
     check_miner(network, tpm, fee)
     click.confirm("Do you want to continue?", abort=True)
     mine(network, tpm, fee)
-
-
-# TODO
-def opt_in():
-    pass
 
 
 # TODO

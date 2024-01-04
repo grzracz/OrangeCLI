@@ -2,7 +2,7 @@
 
 Python & Pip are required for this CLI to work.
 
-Fill out **MINER_MNEMONIC** and **DEPOSIT_ADDRESS** fields in `.env` (deposit mnemonic is optional, only if you want to opt in through the CLI - not implemented yet).
+Fill out **MINER_MNEMONIC** and **DEPOSIT_ADDRESS** fields in `.env` (**DEPOSIT_MNEMONIC** is optional, only if you want to opt in through the CLI).
 
 Install requirements:
 
