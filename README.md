@@ -12,6 +12,10 @@ To start mining, use the CLI like this:
 
 `python main.py testnet --tpm 60 --fee 2000`
 
+or
+
+`python main.py mainnet --tpm 60 --fee 2000`
+
 ```
 tpm - transactions per minute
 fee - fee per transaction in micro ALGO
