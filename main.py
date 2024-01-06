@@ -87,9 +87,11 @@ def get_state_address(state, key):
     value = get_state_value(state, key)
     return algosdk.encoding.encode_address(base64.b64decode(value["bytes"]))
 
+def get_app_id(network):
+    return os.getenv("APP_MAINNET" if network == "mainnet" else "APP_TESTNET")
 
 def get_application_data(network):
-    app_id = os.getenv("APP_MAINNET" if network == "mainnet" else "APP_TESTNET")
+    app_id = get_app_id(network)
     client = get_client(network)
     app_info = client.application_info(app_id)
     state = app_info["params"]["global-state"]
@@ -108,6 +110,17 @@ def get_application_data(network):
         "current_miner": get_state_address(state, "current_miner"),
         "current_miner_effort": get_state_number(state, "current_miner_effort"),
         "start_timestamp": get_state_number(state, "start_timestamp"),
+    }
+
+
+def get_miner_data(network):
+    app_id = get_app_id(network)
+    client = get_client(network)
+    account_info = client.account_info(miner_address)
+    local_state = next(iter([app["key-value"] for app in account_info["apps-local-state"] if app_id == str(app["id"])]))
+    return {
+        "own_effort": get_state_number(local_state, "effort"),
+        "available_balance": account_info["amount"] - account_info["min-balance"]
     }
 
 
@@ -187,6 +200,7 @@ def send_mining_group(client, sp, app_info, amount, total_txs, finish):
 
 pending_txs = 0
 mutex = Lock()
+prev_block = ""
 
 
 def finish_transactions(amount):
@@ -195,13 +209,17 @@ def finish_transactions(amount):
         pending_txs -= amount
 
 
-def log_mining_stats(network, total_txs):
-    global pending_txs
+def log_mining_stats(network, app_info, miner_info, total_txs):
+    global pending_txs, prev_block
+    own_effort_pct = miner_info['own_effort'] / app_info['last_miner_effort'] * 100.0
+    if prev_block != app_info["block"] and prev_block != "":
+        click.echo()
     click.echo(
         f"[{datetime.now().strftime('%H:%M:%S')}] "
         + f"{click.style(network.upper(), fg='red' if network == 'testnet' else 'yellow', bold=True)}: "
-        + f"Sent {total_txs} transactions, {pending_txs} currently pending."
+        + f"Sent {total_txs} transactions, {pending_txs} pending, block {app_info['block']}, current effort: {app_info['current_miner_effort']}, last effort: {app_info['last_miner_effort']}, own effort: {miner_info['own_effort']} ({own_effort_pct:.1f}%)"
     )
+    prev_block = app_info["block"]
 
 MINIMUM_BALANCE_THRESHOLD = int(os.getenv("MINIMUM_BALANCE_THRESHOLD", 1000000))
 
@@ -231,16 +249,14 @@ def mine(network, tpm, fee):
         if started != now:
             transactions_to_send = tpm
             started = now
-        if loops % 5 == 0:
-            app_info = get_application_data(network)
-            sp = client.suggested_params()
-            log_mining_stats(network, total_txs)
-            # Balance check
-            miner_info = client.account_info(miner_address)
-            miner_balance = miner_info["amount"] - miner_info["min-balance"]
-            if miner_balance < MINIMUM_BALANCE_THRESHOLD:
-                click.secho("Miner has insufficient funds, stopping mining.", fg="red")
-                break
+        app_info = get_application_data(network)
+        miner_info = get_miner_data(network)
+        log_mining_stats(network, app_info, miner_info, total_txs)
+        # Balance check
+        if miner_info["available_balance"] < MINIMUM_BALANCE_THRESHOLD:
+            click.secho("Miner has insufficient funds, stopping mining.", fg="red")
+            break
+        sp = client.suggested_params()
         sp.flat_fee = True
         sp.fee = fee
         total = min(tps, transactions_to_send)
