@@ -7,7 +7,6 @@ import base64
 import time
 from algosdk.atomic_transaction_composer import (
     AtomicTransactionComposer,
-    AtomicTransactionComposerStatus,
     AccountTransactionSigner,
 )
 from threading import Thread, Lock
@@ -151,17 +150,55 @@ def check_deposit_opted_in(network):
         [app["id"] == app_info["id"] for app in deposit_info["apps-local-state"]]
     )
     if not app_opted_in:
-        click.secho(f"Deposit address not opted in to app {app_info['id']}.", fg="red")
-        exit(1)
+        if deposit_pk:
+            click.echo("Trying to opt-in the deposit address into the application...")
+            check_enough_balance_or_exit(client, deposit_address, 129500)
+            # 128500 microalgos increase in minimum balance after opt-in into the application
+            # plus 1000 microalgos for the opt-in transaction fee
+            try:
+                opt_in(client, app_info["id"], "app", deposit_address, deposit_pk)
+                click.echo("Deposit address opted successfully into the application.")
+            except Exception as e:
+                click.secho(f"Error: {e}", fg="red")
+                click.secho(f"Deposit address not opted into app {app_info['id']}.", fg="red")
+                exit(1)
+        else:
+            click.secho(f"Deposit address not opted into app {app_info['id']}.", fg="red")
+            exit(1)
+
     asset_data = find(
         deposit_info["assets"], lambda asset: asset["asset-id"] == app_info["asset"]
     )
     if not asset_data:
-        click.secho(
-            f"Deposit address not opted in to asset {app_info['asset']}.", fg="red"
-        )
-        exit(1)
+        if deposit_pk:
+            click.echo("Trying to opt-in the deposit address into the asset...")
+            check_enough_balance_or_exit(client, deposit_address, 101000)
+            # 100000 microalgos increase in minimum balance after opt-in into the asset
+            # plus 1000 microalgos for the opt-in transaction fee
+            try:
+                opt_in(client, app_info["asset"], "asset", deposit_address, deposit_pk)
+                click.echo("Deposit address opted successfully into the asset.")
+            except Exception as e:
+                click.secho(f"Error: {e}", fg="red")
+                click.secho(f"Deposit address not opted into asset {app_info['asset']}.", fg="red")
+                exit(1)
+        else:
+            click.secho(f"Deposit address not opted into asset {app_info['asset']}.", fg="red")
 
+def check_enough_balance_or_exit(client, address, amount_needed):
+    """Check if the account has at least amount_needed microalgos in addition
+       to the minimum balance. If not, print an error message and exit."""
+    info = client.account_info(address)
+    balance = max(0, info["amount"] - info["min-balance"])
+    if info["amount"] == 0:
+        amount_needed += 100000 # 100000 microalgos minimum balance increase for new accounts
+    if amount_needed - balance > 0:
+        click.secho(
+                f"Deposit account has low balance ({info['amount'] / pow(10, 6)} ALGO), " +
+                f"please fund with additional {(amount_needed - balance) / pow(10, 6)} ALGO",
+                fg="red",
+                )
+        exit(1)
 
 def send_mining_group(client, sp, app_info, amount, total_txs, finish):
     try:
@@ -277,11 +314,22 @@ def main(network, tpm, fee):
     click.confirm("Do you want to continue?", abort=True)
     mine(network, tpm, fee)
 
-
-# TODO
-def opt_in():
-    pass
-
+def opt_in(client, app_or_asset_id, id_type, address, pk):
+    """Opt-in the account defined by `address` and private key `pk` into the application or asset id.
+       id_type must be "app" or "asset".
+       The function can throw an exception, to be managed by the caller."""
+    sp = client.suggested_params()
+    if id_type == "app":
+        txn = algosdk.transaction.ApplicationOptInTxn(
+            sender=address, sp=sp, index=app_or_asset_id)
+    elif id_type == "asset":
+        txn = algosdk.transaction.AssetTransferTxn(
+            sender=address, sp=sp, receiver=address, amt=0, index=app_or_asset_id)
+    signed_txn = txn.sign(pk)
+    txid = client.send_transaction(signed_txn)
+    # Wait for the transaction to be confirmed
+    confirmed_txn = algosdk.transaction.wait_for_confirmation(client, txid, 4)
+    click.echo(f"Transaction confirmed in round {confirmed_txn['confirmed-round']}")
 
 # TODO
 def withdraw():
