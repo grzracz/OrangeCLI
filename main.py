@@ -19,7 +19,7 @@ try:
     miner_sk = algosdk.mnemonic.to_private_key(miner_mnemonic)
     miner_signer = AccountTransactionSigner(miner_sk)
     miner_address = algosdk.account.address_from_private_key(miner_sk)
-except Exception as e:
+except Exception:
     click.secho(f"Miner mnemonic is malformed.", fg="red")
     exit(1)
 
