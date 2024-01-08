@@ -19,7 +19,7 @@ try:
     miner_sk = algosdk.mnemonic.to_private_key(miner_mnemonic)
     miner_signer = AccountTransactionSigner(miner_sk)
     miner_address = algosdk.account.address_from_private_key(miner_sk)
-except Exception:
+except Exception as e:
     click.secho(f"Miner mnemonic is malformed.", fg="red")
     exit(1)
 
@@ -161,7 +161,7 @@ def check_deposit_opted_in(network):
     app_info = get_application_data(network)
     app_opted_in = any(
         [app["id"] == app_info["id"] for app in deposit_info["apps-local-state"]]
-    )
+    ) if "apps-local-state" in deposit_info else False
     if not app_opted_in:
         if deposit_pk:
             click.echo("Trying to opt-in the deposit address into the application...")
