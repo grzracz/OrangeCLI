@@ -112,11 +112,26 @@ def get_application_data(network):
     }
 
 
+def find(array, condition):
+    return next(iter([item for item in array if condition(item)]), None)
+
+
+def find_miner_state(account_info, app_id):
+    if "apps-local-state" in account_info:
+        for app in account_info["apps-local-state"]:
+            if int(app['id']) == int(app_id):
+                return app['key-value']
+    return None
+
+
 def get_miner_data(network):
     app_id = get_app_id(network)
     client = get_client(network)
-    account_info = client.account_info(miner_address)
-    local_state = next(iter([app["key-value"] for app in account_info["apps-local-state"] if app_id == str(app["id"])]))
+    account_info = client.account_info(deposit_address)
+    local_state = find_miner_state(account_info, app_id)
+    if not local_state:
+        click.secho(f"Deposit address is not opted in.", fg="red")
+        exit(1)
     return {
         "own_effort": get_state_number(local_state, "effort"),
         "available_balance": account_info["amount"] - account_info["min-balance"]
@@ -151,8 +166,7 @@ def check_miner(network, tpm, fee):
         exit(1)
 
 
-def find(array, condition):
-    return next(iter([item for item in array if condition(item)]), None)
+
 
 
 def check_deposit_opted_in(network):
