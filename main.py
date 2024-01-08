@@ -127,14 +127,15 @@ def find_miner_state(account_info, app_id):
 def get_miner_data(network):
     app_id = get_app_id(network)
     client = get_client(network)
-    account_info = client.account_info(deposit_address)
-    local_state = find_miner_state(account_info, app_id)
+    miner_info = client.account_info(miner_address)
+    deposit_info = client.account_info(deposit_address)
+    local_state = find_miner_state(deposit_info, app_id)
     if not local_state:
         click.secho(f"Deposit address is not opted in.", fg="red")
         exit(1)
     return {
         "own_effort": get_state_number(local_state, "effort"),
-        "available_balance": account_info["amount"] - account_info["min-balance"]
+        "available_balance": miner_info["amount"] - miner_info["min-balance"]
     }
 
 
@@ -303,10 +304,9 @@ def mine(network, tpm, fee):
         app_info = get_application_data(network)
         miner_info = get_miner_data(network)
         log_mining_stats(network, app_info, miner_info, total_txs)
-        # Balance check
         if miner_info["available_balance"] < MINIMUM_BALANCE_THRESHOLD:
             click.secho("Miner has insufficient funds, stopping mining.", fg="red")
-            break
+            exit(1)
         sp = client.suggested_params()
         sp.flat_fee = True
         sp.fee = fee
