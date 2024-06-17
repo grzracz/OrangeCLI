@@ -242,7 +242,7 @@ def send_mining_group(client, sp, app_info, amount, total_txs, finish):
                 [algosdk.encoding.decode_address(deposit_address)],
                 accounts=[app_info["last_miner"], deposit_address],
                 foreign_assets=[app_info["asset"]],
-                note=txid.to_bytes(math.ceil(txid / 255), "big"),
+                note=txid.to_bytes(math.ceil(math.log2(txid + 1) / 8), "big"),
             )
         composer.execute(client, 5)
     except Exception as e:
